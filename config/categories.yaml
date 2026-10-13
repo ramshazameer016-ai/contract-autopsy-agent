@@ -1,0 +1,176 @@
+# Categories, Keywords, and Slots Configuration for Contract Autopsy Agent
+# Defined according to Architecture Document (Sections E, F, and G)
+
+categories:
+  payment:
+    name: "Payment & Fees"
+    keywords:
+      - "payment"
+      - "pay"
+      - "fee"
+      - "fees"
+      - "invoice"
+      - "invoices"
+      - "billing"
+      - "compensation"
+      - "payable"
+      - "advance"
+      - "milestone"
+      - "late fee"
+      - "interest"
+      - "due date"
+      - "net 15"
+      - "net 30"
+      - "net 60"
+      - "net 90"
+      - "remuneration"
+      - "hourly rate"
+      - "fixed fee"
+    slots:
+      - "payment.amount"
+      - "payment.fee_basis"
+      - "payment.due_days"
+      - "payment.advance_pct"
+      - "payment.late_fee_stated"
+      - "payment.interest_rate"
+    direction:
+      "payment.due_days": "lower_is_better"
+      "payment.advance_pct": "higher_is_better"
+      "payment.late_fee_stated": "true_is_better"
+
+  ip:
+    name: "Intellectual Property"
+    keywords:
+      - "intellectual property"
+      - "copyright"
+      - "patent"
+      - "trademark"
+      - "proprietary rights"
+      - "ownership"
+      - "assignment"
+      - "assign"
+      - "work product"
+      - "work for hire"
+      - "work made for hire"
+      - "pre-existing"
+      - "preexisting"
+      - "moral rights"
+      - "licence"
+      - "license"
+      - "portfolio"
+      - "inventions"
+    slots:
+      - "ip.assignment_scope"
+      - "ip.assignment_timing"
+      - "ip.preexisting_ip_carved_out"
+      - "ip.portfolio_right"
+      - "ip.moral_rights_waived"
+    direction:
+      "ip.assignment_scope": "retained_over_assigned"
+      "ip.preexisting_ip_carved_out": "true_is_better"
+      "ip.portfolio_right": "true_is_better"
+      "ip.moral_rights_waived": "false_is_better"
+
+  termination:
+    name: "Termination"
+    keywords:
+      - "termination"
+      - "terminate"
+      - "cancellation"
+      - "cancel"
+      - "notice period"
+      - "for convenience"
+      - "material breach"
+      - "cure period"
+      - "immediate termination"
+      - "expiry"
+      - "expiration"
+      - "survival"
+    slots:
+      - "termination.client_notice_days"
+      - "termination.contractor_notice_days"
+      - "termination.cure_period_days"
+      - "termination.pay_for_work_done"
+      - "termination.for_convenience_allowed"
+    direction:
+      "termination.client_notice_days": "higher_is_better"
+      "termination.contractor_notice_days": "higher_is_better"
+      "termination.pay_for_work_done": "true_is_better"
+
+  scope:
+    name: "Scope & Deliverables"
+    keywords:
+      - "scope"
+      - "scope of work"
+      - "deliverables"
+      - "services"
+      - "milestones"
+      - "specifications"
+      - "schedule"
+      - "duties"
+      - "responsibilities"
+      - "change order"
+      - "change request"
+      - "revision"
+      - "acceptance criteria"
+    slots:
+      - "scope.deliverables_defined"
+      - "scope.change_control_required"
+      - "scope.revision_limit"
+    direction:
+      "scope.deliverables_defined": "true_is_better"
+      "scope.change_control_required": "true_is_better"
+
+  liability:
+    name: "Liability & Indemnity"
+    keywords:
+      - "liability"
+      - "limitation of liability"
+      - "indemnification"
+      - "indemnify"
+      - "hold harmless"
+      - "damages"
+      - "consequential damages"
+      - "indirect damages"
+      - "gross negligence"
+      - "aggregate liability"
+      - "unlimited liability"
+    slots:
+      - "liability.cap_amount"
+      - "liability.consequential_damages_excluded"
+      - "liability.unlimited_contractor"
+    direction:
+      "liability.consequential_damages_excluded": "true_is_better"
+      "liability.unlimited_contractor": "false_is_better"
+
+  confidentiality:
+    name: "Confidentiality"
+    keywords:
+      - "confidentiality"
+      - "confidential information"
+      - "non-disclosure"
+      - "trade secrets"
+      - "proprietary information"
+      - "secrecy"
+      - "confidential"
+    slots:
+      - "confidentiality.duration_years"
+      - "confidentiality.mutual"
+    direction:
+      "confidentiality.mutual": "true_is_better"
+
+  other:
+    name: "General / Other"
+    keywords:
+      - "governing law"
+      - "jurisdiction"
+      - "dispute resolution"
+      - "arbitration"
+      - "severability"
+      - "entire agreement"
+      - "force majeure"
+      - "notices"
+      - "counterparts"
+      - "waiver"
+    slots: []
+    direction: {}
