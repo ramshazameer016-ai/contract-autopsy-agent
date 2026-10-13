@@ -1,6 +1,6 @@
 """
 Contract Autopsy Agent - Streamlit Application Entry Point.
-Stage 1: Document Extraction, Clause Segmentation, and Category Tagging.
+Stage 2: Facts, Rule Engine, YAML Rubric, and Risk Heatmap.
 """
 
 from __future__ import annotations
@@ -24,7 +24,9 @@ from src.ca.extraction.loader import load_document, load_pasted_text
 from src.ca.extraction.ocr_reader import get_ocr_status_message
 from src.ca.segmentation.segmenter import segment_document
 from src.ca.segmentation.tagger import tag_clauses
-from src.ca.schemas import ExtractedDocument, Clause
+from src.ca.analysis.pipeline import analyse_contract
+from src.ca.ui.components import render_heatmap_summary, render_findings_details
+from src.ca.schemas import ExtractedDocument, Clause, ContractAnalysis
 
 # Page configuration
 st.set_page_config(
@@ -60,16 +62,22 @@ with st.sidebar:
 
 # Header
 st.title("⚖️ Contract Autopsy Agent")
-st.caption(f"Version: {APP_VERSION} | Stage 1: Extraction, Segmentation & Tagging")
+st.caption(f"Version: {APP_VERSION} | Stage 2: Facts, Rule Engine & Risk Heatmap")
 
 # Main Interface Tabs
 tab_upload, tab_analysis, tab_counter, tab_negotiate, tab_compare = st.tabs(
-    ["📁 Upload & Ingestion", "🔍 Analysis", "✍️ Counter-Clause", "🌳 Negotiate", "⚖️ Compare"]
+    ["📁 Upload & Ingestion", "🔍 Risk Analysis & Heatmap", "✍️ Counter-Clause", "🌳 Negotiate", "⚖️ Compare"]
 )
 
 
-def _process_contract_data(doc_id: str, source_type: str, file_obj=None, text_content: str = "", sample_choice: str = "") -> tuple[ExtractedDocument | None, list[Clause]]:
-    """Uniform processing function for Contract A and Contract B."""
+def _process_contract_data(
+    doc_id: str,
+    source_type: str,
+    file_obj=None,
+    text_content: str = "",
+    sample_choice: str = "",
+) -> tuple[ExtractedDocument | None, list[Clause], ContractAnalysis | None]:
+    """Uniform processing function executing extraction, segmentation, and Stage 2 analysis."""
     try:
         doc: ExtractedDocument
         if source_type == "Sample":
@@ -80,14 +88,15 @@ def _process_contract_data(doc_id: str, source_type: str, file_obj=None, text_co
         elif source_type == "Paste" and text_content.strip():
             doc = load_pasted_text(text_content, doc_id=doc_id, filename=f"pasted_contract_{doc_id}.txt")
         else:
-            return None, []
+            return None, [], None
 
         clauses = segment_document(doc)
         tag_clauses(clauses)
-        return doc, clauses
+        analysis = analyse_contract(doc, clauses=clauses)
+        return doc, clauses, analysis
     except Exception as e:
         st.error(f"Error processing Contract {doc_id}: {e}")
-        return None, []
+        return None, [], None
 
 
 def _render_contract_column(doc_id: str, label: str):
@@ -101,9 +110,6 @@ def _render_contract_column(doc_id: str, label: str):
         horizontal=True,
     )
 
-    doc: ExtractedDocument | None = None
-    clauses: list[Clause] = []
-
     if input_mode == "Synthetic Sample":
         samples = ["contract_a.pdf", "contract_b.pdf", "contract_c.docx", "scanned.pdf"]
         default_idx = 0 if doc_id == "A" else 1
@@ -114,9 +120,10 @@ def _render_contract_column(doc_id: str, label: str):
             key=f"sample_{doc_id}",
         )
         if st.button(f"Load & Process Contract {doc_id}", key=f"btn_sample_{doc_id}"):
-            doc, clauses = _process_contract_data(doc_id, "Sample", sample_choice=chosen_sample)
+            doc, clauses, analysis = _process_contract_data(doc_id, "Sample", sample_choice=chosen_sample)
             st.session_state[f"doc_{doc_id}"] = doc
             st.session_state[f"clauses_{doc_id}"] = clauses
+            st.session_state[f"analysis_{doc_id}"] = analysis
 
     elif input_mode == "Upload File (PDF/DOCX)":
         uploaded_file = st.file_uploader(
@@ -125,9 +132,10 @@ def _render_contract_column(doc_id: str, label: str):
             key=f"upload_{doc_id}",
         )
         if uploaded_file and st.button(f"Process Uploaded File {doc_id}", key=f"btn_upload_{doc_id}"):
-            doc, clauses = _process_contract_data(doc_id, "Upload", file_obj=uploaded_file)
+            doc, clauses, analysis = _process_contract_data(doc_id, "Upload", file_obj=uploaded_file)
             st.session_state[f"doc_{doc_id}"] = doc
             st.session_state[f"clauses_{doc_id}"] = clauses
+            st.session_state[f"analysis_{doc_id}"] = analysis
 
     elif input_mode == "Paste Text":
         pasted_text = st.text_area(
@@ -137,20 +145,20 @@ def _render_contract_column(doc_id: str, label: str):
             placeholder="Paste contract clauses here...",
         )
         if st.button(f"Process Pasted Text {doc_id}", key=f"btn_paste_{doc_id}"):
-            doc, clauses = _process_contract_data(doc_id, "Paste", text_content=pasted_text)
+            doc, clauses, analysis = _process_contract_data(doc_id, "Paste", text_content=pasted_text)
             st.session_state[f"doc_{doc_id}"] = doc
             st.session_state[f"clauses_{doc_id}"] = clauses
+            st.session_state[f"analysis_{doc_id}"] = analysis
 
     # Display results from session state if available
-    doc = st.session_state.get(f"doc_{doc_id}")
-    clauses = st.session_state.get(f"clauses_{doc_id}", [])
+    doc: ExtractedDocument | None = st.session_state.get(f"doc_{doc_id}")
+    clauses: list[Clause] = st.session_state.get(f"clauses_{doc_id}", [])
 
     if doc is not None:
         # Display extraction warnings (e.g. Scanned PDF warnings)
         for warn in doc.warnings:
             st.warning(f"⚠️ {warn}")
 
-        # Metadata metrics
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("File Type", doc.file_type.upper())
         col2.metric("Pages / Blocks", len(doc.pages))
@@ -159,7 +167,6 @@ def _render_contract_column(doc_id: str, label: str):
 
         st.caption(f"**SHA-256:** `{doc.sha256[:16]}...` | **Filename:** `{doc.filename}`")
 
-        # Category summary badges
         if clauses:
             category_counts: dict[str, int] = {}
             for c in clauses:
@@ -168,8 +175,7 @@ def _render_contract_column(doc_id: str, label: str):
             badge_str = " | ".join(f"**{cat}**: {count}" for cat, count in sorted(category_counts.items()))
             st.markdown(f"🏷️ **Categories Tagged:** {badge_str}")
 
-            # Clause list expanders
-            with st.expander(f"📋 View Segmented Clauses ({len(clauses)})", expanded=True):
+            with st.expander(f"📋 View Segmented Clauses ({len(clauses)})", expanded=False):
                 for c in clauses:
                     cat_color = {
                         "payment": "🟢",
@@ -193,7 +199,7 @@ def _render_contract_column(doc_id: str, label: str):
 
 
 with tab_upload:
-    st.info("💡 Process Contract A and Contract B independently. Identical extraction and segmentation logic is applied to both.")
+    st.info("💡 Process Contract A and Contract B independently. Identical extraction and analysis pipeline is executed on both.")
     col_a, col_b = st.columns(2)
     with col_a:
         _render_contract_column("A", "First Agreement")
@@ -201,8 +207,43 @@ with tab_upload:
         _render_contract_column("B", "Second Agreement")
 
 with tab_analysis:
-    st.subheader("🔍 Risk Heatmap & Explanation (Stage 2 & 3)")
-    st.info("Pending Stage 2 (YAML Rubric & Heatmap) and Stage 3 (AI/Template Explanations).")
+    st.subheader("🔍 Explainable Risk Analysis & Heatmap")
+
+    analysis_a: ContractAnalysis | None = st.session_state.get("analysis_A")
+    analysis_b: ContractAnalysis | None = st.session_state.get("analysis_B")
+
+    if not analysis_a and not analysis_b:
+        st.info("Please load or upload a contract in the **Upload & Ingestion** tab to see its risk analysis and heatmap.")
+    else:
+        available_contracts = []
+        if analysis_a:
+            available_contracts.append("Contract A")
+        if analysis_b:
+            available_contracts.append("Contract B")
+
+        selected_view = st.radio("Select Contract to Inspect:", available_contracts, horizontal=True)
+        active_analysis = analysis_a if selected_view == "Contract A" else analysis_b
+
+        if active_analysis is not None:
+            # Overall Risk Banner
+            risk_color = (
+                "#FF4B4B" if active_analysis.overall_risk_score >= 60
+                else "#FFAA00" if active_analysis.overall_risk_score >= 35
+                else "#09AB3B"
+            )
+            col_m1, col_m2 = st.columns([1, 3])
+            with col_m1:
+                st.metric("Overall Contract Risk Score", f"{active_analysis.overall_risk_score} / 100")
+            with col_m2:
+                st.caption(
+                    "Risk score ranges from 0 (lowest risk, highly favourable terms) to 100 (highest risk, aggressive client terms). "
+                    "Absence of mandatory categories incurs a caution penalty. Rating colors are derived deterministically from the YAML rubric."
+                )
+
+            st.divider()
+            render_heatmap_summary(active_analysis)
+            st.divider()
+            render_findings_details(active_analysis)
 
 with tab_counter:
     st.subheader("✍️ Counter-Clause Drafter (Stage 4)")

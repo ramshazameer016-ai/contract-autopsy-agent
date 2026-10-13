@@ -1,0 +1,227 @@
+# Risk-Scoring Rubric for Contract Autopsy Agent
+# Defined strictly according to Architecture Document (Section F)
+
+rubric_version: "0.1.0"
+disclaimer: "Rule-based screening against a configurable rubric. Not a legal opinion."
+base_score_present: 30
+
+rating_policy:
+  precedence: ["RED", "YELLOW", "GREEN"]
+  green_requires:
+    min_green_rules: 1
+    required_slots_present: true
+    no_ambiguity: true
+    no_conflict: true
+
+absence:
+  payment:
+    rating: "YELLOW"
+    points: 55
+    why: "No payment terms found. They may be missing, or text extraction missed them."
+  ip:
+    rating: "YELLOW"
+    points: 50
+    why: "No IP ownership clause found. Ownership may be unclear; ask the client to state it."
+  termination:
+    rating: "YELLOW"
+    points: 55
+    why: "No termination clause found. Exit rights and notice are undefined."
+  scope:
+    rating: "YELLOW"
+    points: 60
+    why: "No scope or deliverables clause found. Work boundaries are undefined."
+  liability:
+    rating: "YELLOW"
+    points: 50
+    why: "No limitation of liability found. You may be exposed to unlimited damages."
+  confidentiality:
+    rating: "YELLOW"
+    points: 40
+    why: "No confidentiality terms found. Proprietary information may be unprotected."
+
+ambiguity_phrases:
+  - "reasonable time"
+  - "reasonable fee"
+  - "as soon as possible"
+  - "from time to time"
+  - "as may be required"
+  - "to the satisfaction of the client"
+  - "sole discretion"
+
+categories:
+  payment:
+    required_slots:
+      - "payment.due_days"
+      - "payment.amount_stated"
+    targets:
+      due_days_max: 30
+      advance_pct_min: 25
+    rules:
+      - id: "PAY-R1"
+        severity: "RED"
+        points: 35
+        when: { slot: "payment.due_days", op: ">", value: 60 }
+        why: "Payment is due {value} days after invoice. You would finance the client for that long."
+      - id: "PAY-R2"
+        severity: "RED"
+        points: 35
+        when: { slot: "payment.conditional_on_third_party", op: "==", value: true }
+        why: "Payment depends on the client being paid by someone else (pay-when-paid)."
+      - id: "PAY-Y1"
+        severity: "YELLOW"
+        points: 15
+        when: { slot: "payment.due_days", op: "between", value: [31, 60] }
+        why: "Payment is due in {value} days, longer than the rubric target of {target} days."
+      - id: "PAY-Y2"
+        severity: "YELLOW"
+        points: 10
+        when: { all: [ { slot: "payment.late_fee_stated", op: "==", value: false },
+                       { slot: "payment.due_days", op: "exists" } ] }
+        why: "A deadline is set but no late-payment interest or remedy is stated."
+      - id: "PAY-Y3"
+        severity: "YELLOW"
+        points: 20
+        when: { slot: "payment.due_days", op: "missing" }
+        why: "No clear payment deadline (for example 'reasonable time')."
+      - id: "PAY-G1"
+        severity: "GREEN"
+        points: -15
+        when: { all: [ { slot: "payment.due_days", op: "<=", value: 30 },
+                       { slot: "payment.amount_stated", op: "==", value: true } ] }
+        why: "Clear amount and payment within {value} days."
+      - id: "PAY-G2"
+        severity: "GREEN"
+        points: -10
+        when: { any: [ { slot: "payment.advance_pct", op: ">=", value: 25 },
+                       { slot: "payment.milestone_based", op: "==", value: true } ] }
+        why: "Advance or milestone payments reduce your exposure."
+
+  ip:
+    required_slots:
+      - "ip.assignment_scope"
+      - "ip.assignment_timing"
+    rules:
+      - id: "IP-R1"
+        severity: "RED"
+        points: 35
+        when: { all: [ { slot: "ip.assignment_scope", op: "==", value: "all_work" },
+                       { slot: "ip.preexisting_ip_carved_out", op: "==", value: false } ] }
+        why: "All work is assigned with no carve-out for your pre-existing tools or material."
+      - id: "IP-Y1"
+        severity: "YELLOW"
+        points: 15
+        when: { slot: "ip.assignment_timing", op: "==", value: "on_creation" }
+        why: "Ownership passes when work is created, possibly before you are paid."
+      - id: "IP-Y2"
+        severity: "YELLOW"
+        points: 15
+        when: { slot: "ip.moral_rights_waiver", op: "==", value: true }
+        why: "You are asked to waive moral rights."
+      - id: "IP-G1"
+        severity: "GREEN"
+        points: -20
+        when: { slot: "ip.assignment_scope", op: "in", value: ["license_only", "retained"] }
+        why: "You keep ownership and grant a licence instead of assigning it."
+      - id: "IP-G2"
+        severity: "GREEN"
+        points: -15
+        when: { all: [ { slot: "ip.assignment_scope", op: "==", value: "deliverables_only" },
+                       { slot: "ip.assignment_timing", op: "==", value: "on_full_payment" } ] }
+        why: "Only final deliverables transfer, and only after full payment."
+
+  termination:
+    required_slots:
+      - "termination.notice_days_client"
+      - "termination.pay_for_work_done"
+    rules:
+      - id: "TRM-R1"
+        severity: "RED"
+        points: 40
+        when: { all: [ { slot: "termination.client_without_notice", op: "==", value: true },
+                       { slot: "termination.pay_for_work_done", op: "==", value: false } ] }
+        why: "The client can end the contract at any time without notice and without paying for work done."
+      - id: "TRM-Y1"
+        severity: "YELLOW"
+        points: 20
+        when: { slot: "termination.client_only_for_convenience", op: "==", value: true }
+        why: "Only the client may terminate for convenience; you have no matching right."
+      - id: "TRM-Y2"
+        severity: "YELLOW"
+        points: 15
+        when: { slot: "termination.notice_days_client", op: "<", value: 7 }
+        why: "Notice period is under 7 days."
+      - id: "TRM-G1"
+        severity: "GREEN"
+        points: -20
+        when: { all: [ { slot: "termination.notice_days_client", op: ">=", value: 14 },
+                       { slot: "termination.pay_for_work_done", op: "==", value: true } ] }
+        why: "At least 14 days notice and payment for work completed."
+
+  scope:
+    required_slots:
+      - "scope.deliverables_defined"
+      - "scope.revision_limit"
+    rules:
+      - id: "SCP-R1"
+        severity: "RED"
+        points: 35
+        when: { slot: "scope.revision_limit", op: "==", value: "unlimited" }
+        why: "Unlimited revisions with no extra pay."
+      - id: "SCP-Y1"
+        severity: "YELLOW"
+        points: 20
+        when: { slot: "scope.deliverables_defined", op: "==", value: false }
+        why: "Deliverables are not clearly defined."
+      - id: "SCP-Y2"
+        severity: "YELLOW"
+        points: 20
+        when: { slot: "scope.open_ended_phrases", op: "==", value: true }
+        why: "Open-ended wording such as 'and any other services required'."
+      - id: "SCP-Y3"
+        severity: "YELLOW"
+        points: 10
+        when: { slot: "scope.change_control", op: "==", value: false }
+        why: "No process for pricing changes to the scope."
+      - id: "SCP-G1"
+        severity: "GREEN"
+        points: -25
+        when: { all: [ { slot: "scope.deliverables_defined", op: "==", value: true },
+                       { slot: "scope.revision_limit", op: "is_number" },
+                       { slot: "scope.change_control", op: "==", value: true } ] }
+        why: "Defined deliverables, a revision limit and a change process."
+
+  liability:
+    required_slots:
+      - "liability.cap_stated"
+    rules:
+      - id: "LIA-R1"
+        severity: "RED"
+        points: 40
+        when: { slot: "liability.unlimited_contractor", op: "==", value: true }
+        why: "Contractor liability is unlimited or open-ended."
+      - id: "LIA-Y1"
+        severity: "YELLOW"
+        points: 20
+        when: { slot: "liability.cap_stated", op: "==", value: false }
+        why: "No aggregate liability cap is specified."
+      - id: "LIA-G1"
+        severity: "GREEN"
+        points: -20
+        when: { all: [ { slot: "liability.cap_stated", op: "==", value: true },
+                       { slot: "liability.consequential_damages_excluded", op: "==", value: true } ] }
+        why: "Liability is capped and indirect/consequential damages are excluded."
+
+  confidentiality:
+    required_slots:
+      - "confidentiality.stated"
+    rules:
+      - id: "CON-Y1"
+        severity: "YELLOW"
+        points: 15
+        when: { slot: "confidentiality.mutual", op: "==", value: false }
+        why: "Confidentiality obligations are unilateral rather than mutual."
+      - id: "CON-G1"
+        severity: "GREEN"
+        points: -15
+        when: { slot: "confidentiality.mutual", op: "==", value: true }
+        why: "Confidentiality obligations are mutual."

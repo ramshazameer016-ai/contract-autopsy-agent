@@ -1,0 +1,75 @@
+[
+  {
+    "id": "G1",
+    "case": "Favourable payment",
+    "category": "payment",
+    "text": "The Client shall pay a fixed fee of INR 2,50,000 for the Services. The Client shall pay each invoice within fifteen (15) days of receipt. Overdue amounts bear interest at 1.5% per month. 30% of the Fee is payable in advance.",
+    "expected_rating": "GREEN",
+    "expected_rules": ["PAY-G1", "PAY-G2"],
+    "expected_facts": {
+      "payment.due_days": 15,
+      "payment.amount_stated": true,
+      "payment.advance_pct": 30
+    },
+    "evidence_status": "present"
+  },
+  {
+    "id": "G2",
+    "case": "Ambiguous payment",
+    "category": "payment",
+    "text": "The Client shall pay a reasonable fee within a reasonable time after completion of the Services.",
+    "expected_rating": "YELLOW",
+    "expected_rules": ["PAY-Y3"],
+    "expected_facts": {
+      "payment.due_days": null
+    },
+    "evidence_status": "ambiguous"
+  },
+  {
+    "id": "G3",
+    "case": "Unfavourable IP",
+    "category": "ip",
+    "text": "All work product, whether or not related to the Services, and all pre-existing materials used, shall vest in the Client upon creation, perpetually and irrevocably. The Consultant waives all moral rights.",
+    "expected_rating": "RED",
+    "expected_rules": ["IP-R1", "IP-Y1", "IP-Y2"],
+    "expected_facts": {
+      "ip.assignment_scope": "all_work",
+      "ip.assignment_timing": "on_creation",
+      "ip.preexisting_ip_carved_out": false,
+      "ip.moral_rights_waiver": true
+    },
+    "evidence_status": "present"
+  },
+  {
+    "id": "G4",
+    "case": "Unfavourable termination",
+    "category": "termination",
+    "text": "The Client may terminate at any time without notice or liability. The Consultant may not terminate before completion.",
+    "expected_rating": "RED",
+    "expected_rules": ["TRM-R1", "TRM-Y1"],
+    "expected_facts": {
+      "termination.client_without_notice": true,
+      "termination.pay_for_work_done": false,
+      "termination.client_only_for_convenience": true
+    },
+    "evidence_status": "present"
+  },
+  {
+    "id": "G5",
+    "case": "Missing scope clause",
+    "category": "scope",
+    "text": null,
+    "expected_rating": "YELLOW",
+    "expected_rules": ["absence.scope"],
+    "evidence_status": "absent"
+  },
+  {
+    "id": "G8",
+    "case": "Conflicting terms",
+    "category": "payment",
+    "clause_a": "The Client shall pay each invoice within 15 days of receipt.",
+    "clause_b": "All payments are due within 60 days of invoice.",
+    "expected_evidence_status": "conflicting",
+    "expected_min_rating": "YELLOW"
+  }
+]

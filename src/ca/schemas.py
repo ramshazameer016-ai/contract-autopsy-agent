@@ -71,3 +71,41 @@ class Clause(BaseModel):
     category_confidence: float = 0.0     # 0.0 to 1.0
     category_source: Literal["keyword", "llm", "manual"] = "keyword"
     facts: list[Fact] = Field(default_factory=list)
+
+
+# E.4 Risk finding
+class TriggeredRule(BaseModel):
+    """Rule that fired during rubric evaluation."""
+    rule_id: str                         # e.g. "PAY-R1"
+    severity: Rating                     # RED, YELLOW, GREEN, UNRATED
+    points: int                          # risk score points added or subtracted
+    why: str                             # explanation template
+    fact_slots: list[str] = Field(default_factory=list)
+
+
+class RiskFinding(BaseModel):
+    """Evaluated risk finding for a clause or absent category."""
+    finding_id: str                      # unique finding ID, e.g. "F-A-002"
+    doc_id: str                          # "A" or "B"
+    category: Category
+    clause_id: str | None = None         # None when the category is absent
+    rating: Rating                       # RED, YELLOW, GREEN, UNRATED
+    evidence_status: EvidenceStatus      # present, absent, ambiguous, conflicting, insufficient
+    score: int | None = None             # 0-100 risk points clamped
+    triggered_rules: list[TriggeredRule] = Field(default_factory=list)
+    evidence: list[EvidenceSpan] = Field(default_factory=list)
+    plain_reason: str                    # built from rule text, not free-form AI
+    kb_refs: list[str] = Field(default_factory=list)
+    rubric_version: str = "0.1.0"
+    conflicts_with: list[str] = Field(default_factory=list) # conflicting clause_ids
+
+
+class ContractAnalysis(BaseModel):
+    """Complete Stage 2 contract analysis artifact."""
+    doc_id: str
+    document: ExtractedDocument
+    clauses: list[Clause]
+    findings: list[RiskFinding]
+    category_ratings: dict[str, Rating] = Field(default_factory=dict)
+    category_scores: dict[str, int] = Field(default_factory=dict)
+    overall_risk_score: int = 0
