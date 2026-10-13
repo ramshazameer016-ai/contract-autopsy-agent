@@ -1,3 +1,5 @@
+# Multilingual fallback text and dictionary for Contract Autopsy Agent (Stage 3)
+# Supported languages: English, Hindi, Telugu, Tamil
 
 ai_unavailable:
   English: "AI is unavailable. Showing the local fallback."
@@ -6,7 +8,83 @@ ai_unavailable:
   Tamil: "AI கிடைக்கவில்லை. உள்ளூர் மாற்று முடிவு காட்டப்படுகிறது."
 
 contract_text_missing:
-  English: "No contract text was extracted. Review the original document."
-  Hindi: "अनुबंध का पाठ नहीं निकाला गया। मूल दस्तावेज़ की समीक्षा करें।"
-  Telugu: "ఒప్పంద పాఠ్యం సేకరించబడలేదు. అసలు పత్రాన్ని పరిశీలించండి."
-  Tamil: "ஒப்பந்த உரை பிரித்தெடுக்கப்படவில்லை. அசல் ஆவணத்தை மதிப்பாய்வு செய்யவும்."
+  English: "No readable contract text was available to generate a summary."
+  Hindi: "सारांश तैयार करने के लिए कोई पठनीय अनुबंध पाठ उपलब्ध नहीं था।"
+  Telugu: "సారాంశాన్ని రూపొందించడానికి చదవగలిగే ఒప్పంద పాఠ్యం ఏదీ అందుబాటులో లేదు."
+  Tamil: "சுருக்கத்தை உருவாக்க படிக்கக்கூடிய ஒப்பந்த உரை எதுவும் கிடைக்கவில்லை."
+
+preview_clause:
+  English: "Source-text preview only. Verify the original contract before relying on this text."
+  Hindi: "केवल स्रोत-पाठ पूर्वावलोकन। इस पाठ पर भरोसा करने से पहले मूल अनुबंध की पुष्टि करें।"
+  Telugu: "మూల పాఠ్య ప్రివ్యూ మాత్రమే. ఈ పాఠ్యంపై ఆధారపడే ముందు అసలు ఒప్పందాన్ని ధృవీకరించండి."
+  Tamil: "மூல உரை முன்னோட்டம் மட்டுமே. இந்த உரையை நம்புவதற்கு முன் அசல் ஒப்பந்தத்தை சரிபார்க்கவும்."
+
+disclaimers:
+  English: "This summary is informational and is not legal advice. Check all points against the original contract."
+  Hindi: "यह सारांश केवल जानकारी के लिए है, कानूनी सलाह नहीं। सभी बिंदुओं को मूल अनुबंध से जाँचें।"
+  Telugu: "ఈ సారాంశం సమాచారం కోసం మాత్రమే; ఇది న్యాయ సలహా కాదు. అన్ని అంశాలను అసలు ఒప్పందంతో తనిఖీ చేయండి."
+  Tamil: "இந்தச் சுருக்கம் தகவலுக்காக மட்டுமே; இது சட்ட ஆலோசனை அல்ல. அனைத்து அம்சங்களையும் அசல் ஒப்பந்தத்துடன் சரிபார்க்கவும்."
+
+categories:
+  payment:
+    English: "Payment terms"
+    Hindi: "भुगतान की शर्तें"
+    Telugu: "చెల్లింపు నిబంధనలు"
+    Tamil: "பணம் செலுத்தும் விதிமுறைகள்"
+  ip:
+    English: "Intellectual property"
+    Hindi: "बौद्धिक संपदा"
+    Telugu: "మేధో సంపత్తి"
+    Tamil: "அறிவுசார் சொத்துரிமை"
+  termination:
+    English: "Ending the contract"
+    Hindi: "अनुबंध समाप्ति"
+    Telugu: "ఒప్పందం రద్దు"
+    Tamil: "ஒப்பந்தத்தை முடித்தல்"
+  scope:
+    English: "Work and deliverables"
+    Hindi: "कार्य और डिलिवरेबल्स"
+    Telugu: "పని మరియు డెలివరీలు"
+    Tamil: "வேலை மற்றும் விநியோகங்கள்"
+  liability:
+    English: "Responsibility and liability"
+    Hindi: "दायित्व और जवाबदेही"
+    Telugu: "బాధ్యత మరియు పరిమితి"
+    Tamil: "பொறுப்பு மற்றும் வரையறை"
+  confidentiality:
+    English: "Confidentiality"
+    Hindi: "गोपनीयता"
+    Telugu: "రహస్యత"
+    Tamil: "ரகசியத்தன்மை"
+  extracted_clause:
+    English: "Extracted clause"
+    Hindi: "निकाला गया खंड"
+    Telugu: "సేకరించిన నిబంధన"
+    Tamil: "பிரித்தெடுக்கப்பட்ட பிரிவு"
+  contract_text:
+    English: "Contract text"
+    Hindi: "अनुबंध पाठ"
+    Telugu: "ఒప్పంద పాఠ్యం"
+    Tamil: "ஒப்பந்த உரை"
+
+statuses:
+  Stated:
+    English: "Stated in contract"
+    Hindi: "अनुबंध में उल्लिखित"
+    Telugu: "ఒప్పందంలో పేర్కొనబడింది"
+    Tamil: "ஒப்பந்தத்தில் குறிப்பிடப்பட்டுள்ளது"
+  Missing:
+    English: "Missing from contract"
+    Hindi: "अनुबंध में अनुपस्थित"
+    Telugu: "ఒప్పందంలో లేదు"
+    Tamil: "ஒப்பந்தத்தில் இல்லை"
+  Unclear:
+    English: "Unclear terms"
+    Hindi: "अस्पष्ट शर्तें"
+    Telugu: "అస్పష్టమైన నిబంధనలు"
+    Tamil: "தெளிவற்ற விதிமுறைகள்"
+  Inferred:
+    English: "Inferred"
+    Hindi: "अनुमानित"
+    Telugu: "ఊహించినది"
+    Tamil: "ஊகிக்கப்பட்டது"

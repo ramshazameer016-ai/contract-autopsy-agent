@@ -43,6 +43,7 @@ from src.ca.ui.components import (
 from src.ca.schemas import ExtractedDocument, Clause, ContractAnalysis
 from src.ca.generation.summary import summarize_contract
 from src.ca.generation.counter_clause import generate_counter_clause
+from src.ca.translation.translate import translate_category, translate_status
 
 
 # ---------------------------------------------------------------------
@@ -185,6 +186,7 @@ def _build_summary_inputs(
 
 def _clear_summary_for_contract(doc_id: str) -> None:
     """Remove cached summaries for a contract after it is reprocessed."""
+    st.session_state.pop(f"summary_requested_{doc_id}", None)
     prefixes = (
         f"summary_result_{doc_id}_",
         f"summary_result_{doc_id}",
@@ -613,8 +615,9 @@ with tab_understand:
             summary_cache_key = _summary_cache_key(active_analysis.doc_id, selected_lang)
 
             if st.button("✨ Generate Plain-Language Summary", key=f"btn_gen_summary_{active_analysis.doc_id}"):
+                st.session_state[f"summary_requested_{active_analysis.doc_id}"] = True
                 summary_clauses, facts_and_findings = _build_summary_inputs(active_analysis)
-                with st.spinner("Generating plain-language breakdown..."):
+                with st.spinner(f"Generating plain-language breakdown in {selected_lang}..."):
                     try:
                         summary_res = summarize_contract(
                             clauses=summary_clauses,
@@ -627,6 +630,22 @@ with tab_understand:
                         st.error(f"Could not generate summary: {exc}")
 
             summary_result = st.session_state.get(summary_cache_key)
+
+            # Automatically regenerate when the user changes language after requesting a summary
+            if summary_result is None and st.session_state.get(f"summary_requested_{active_analysis.doc_id}"):
+                summary_clauses, facts_and_findings = _build_summary_inputs(active_analysis)
+                with st.spinner(f"Switching language to {selected_lang}..."):
+                    try:
+                        summary_res = summarize_contract(
+                            clauses=summary_clauses,
+                            facts_and_findings=facts_and_findings,
+                            language=selected_lang,
+                            consent_given=consent_given,
+                        )
+                        st.session_state[summary_cache_key] = summary_res
+                        summary_result = summary_res
+                    except Exception as exc:
+                        st.error(f"Could not generate summary in {selected_lang}: {exc}")
 
             # If user revokes consent, clear live LLM summary
             if not consent_given and summary_result is not None and summary_result.generated_by == "llm":
@@ -669,11 +688,12 @@ with tab_understand:
                             "Unclear": "❓",
                         }.get(item.status, "⚪")
 
-                        category_label = get_category_display_name(item.category)
-                        with st.expander(f"{badge_color} **{category_label}** — {item.status}", expanded=True):
+                        category_label = translate_category(item.category, selected_lang)
+                        status_label = translate_status(item.status, selected_lang)
+                        with st.expander(f"{badge_color} **{category_label}** — {status_label}", expanded=True):
                             st.write(item.explanation)
                             if item.evidence_quote:
-                                st.markdown("**Original wording from contract:**")
+                                st.markdown("**Original wording from contract (verbatim):**")
                                 st.code(item.evidence_quote, language="text")
                                 page_str = f"Page {item.page}" if item.page is not None else "Text"
                                 st.caption(f"Source: Clause `{item.clause_id}` | {page_str}")
@@ -689,6 +709,10 @@ with tab_understand:
 
                 with subtab_unclear:
                     _render_summary_list(unclear_items)
+
+                if hasattr(summary_result, "disclaimer") and summary_result.disclaimer:
+                    st.caption(f"ℹ️ {summary_result.disclaimer}")
+
 
 
 # ---------------------------------------------------------------------
