@@ -1,0 +1,12 @@
+streamlit
+pymupdf
+python-docx
+pydantic>=2
+pyyaml
+rank-bm25
+python-dotenv
+google-genai
+pytest
+# optional, install later if time allows:
+# groq
+# rapidocr-onnxruntime

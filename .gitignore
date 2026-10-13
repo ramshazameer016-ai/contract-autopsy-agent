@@ -1,0 +1,37 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+.streamlit/secrets.toml
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# User uploaded contracts / PDFs / DOCX outside synthetic tests
+*.pdf
+!tests/sample_contracts/*.pdf
+*.docx
+!tests/sample_contracts/*.docx
+*.doc
+
+# IDE settings
+.vscode/
+.idea/
