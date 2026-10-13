@@ -1,0 +1,12 @@
+
+ai_unavailable:
+  English: "AI is unavailable. Showing the local fallback."
+  Hindi: "AI उपलब्ध नहीं है। स्थानीय वैकल्पिक परिणाम दिखाया जा रहा है।"
+  Telugu: "AI అందుబాటులో లేదు. స్థానిక ప్రత్యామ్నాయ ఫలితం చూపబడుతోంది."
+  Tamil: "AI கிடைக்கவில்லை. உள்ளூர் மாற்று முடிவு காட்டப்படுகிறது."
+
+contract_text_missing:
+  English: "No contract text was extracted. Review the original document."
+  Hindi: "अनुबंध का पाठ नहीं निकाला गया। मूल दस्तावेज़ की समीक्षा करें।"
+  Telugu: "ఒప్పంద పాఠ్యం సేకరించబడలేదు. అసలు పత్రాన్ని పరిశీలించండి."
+  Tamil: "ஒப்பந்த உரை பிரித்தெடுக்கப்படவில்லை. அசல் ஆவணத்தை மதிப்பாய்வு செய்யவும்."
