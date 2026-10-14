@@ -5,7 +5,7 @@ Defined strictly according to Architecture Document (Section E).
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Any
 from pydantic import BaseModel, Field
 
 # E.1 Shared types and evidence
@@ -109,3 +109,103 @@ class ContractAnalysis(BaseModel):
     category_ratings: dict[str, Rating] = Field(default_factory=dict)
     category_scores: dict[str, int] = Field(default_factory=dict)
     overall_risk_score: int = 0
+
+
+ComparisonStatus = Literal["matched", "missing_a", "missing_b", "missing_both", "not_comparable", "uncertain"]
+FavoursContract = Literal["A", "B", "tie", "none"]
+VerdictStatus = Literal["leans_a", "leans_b", "no_clear_winner", "insufficient_evidence"]
+
+MANDATORY_BORROW_CAVEAT: str = (
+    "This wording comes from another offer. It may not be legally transferable "
+    "or acceptable to this party; use it only as a negotiation reference."
+)
+
+
+class ComparisonRow(BaseModel):
+    """A matched slot or clause comparison row between Contract A and Contract B."""
+    category: str
+    slot: str
+    label: str
+    val_a: Any = None
+    val_b: Any = None
+    display_a: str = ""
+    display_b: str = ""
+    status: ComparisonStatus = "matched"
+    favours: FavoursContract = "none"
+    comparable: bool = True
+    note: str = ""
+    quote_a: str = ""
+    quote_b: str = ""
+    clause_id_a: str | None = None
+    clause_id_b: str | None = None
+    page_a: int | None = None
+    page_b: int | None = None
+    uncertain_match: bool = False
+
+
+class BorrowSuggestion(BaseModel):
+    """A cross-contract borrowing suggestion (Feature 7)."""
+    source_contract: str
+    target_contract: str
+    category: str
+    slot: str | None = None
+    clause_id: str | None = None
+    page: int | None = None
+    verbatim_quote: str = Field(min_length=1)
+    reason: str
+    caveat: str = MANDATORY_BORROW_CAVEAT
+    fav_diff: float | None = None
+    suggestion_type: Literal["favourability_gap", "missing_clause"] = "favourability_gap"
+
+
+class PriorityWeights(BaseModel):
+    """User priority weights (0=ignore, 1=low, 2=medium, 3=high)."""
+    payment: int = Field(default=2, ge=0, le=3)
+    ip: int = Field(default=2, ge=0, le=3)
+    termination: int = Field(default=2, ge=0, le=3)
+    scope: int = Field(default=2, ge=0, le=3)
+    liability: int = Field(default=2, ge=0, le=3)
+    confidentiality: int = Field(default=2, ge=0, le=3)
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "payment": self.payment,
+            "ip": self.ip,
+            "termination": self.termination,
+            "scope": self.scope,
+            "liability": self.liability,
+            "confidentiality": self.confidentiality,
+        }
+
+
+class ComparisonVerdict(BaseModel):
+    """Structured decision and verdict artifact."""
+    status: VerdictStatus
+    headline: str
+    score_a: float
+    score_b: float
+    margin: float
+    coverage: float
+    scored_categories: list[str] = Field(default_factory=list)
+    unscored_categories: list[str] = Field(default_factory=list)
+    category_summaries: list[str] = Field(default_factory=list)
+    dealbreakers: list[str] = Field(default_factory=list)
+    trade_offs: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    generated_by: Literal["deterministic", "llm_rewritten"] = "deterministic"
+    full_text: str = ""
+
+
+class ComparisonResult(BaseModel):
+    """Full Stage 5 comparison bundle."""
+    doc_id_a: str
+    doc_id_b: str
+    filename_a: str
+    filename_b: str
+    weights: dict[str, int]
+    category_fav_a: dict[str, float]
+    category_fav_b: dict[str, float]
+    rows: list[ComparisonRow]
+    verdict: ComparisonVerdict
+    borrow_suggestions: list[BorrowSuggestion]
+

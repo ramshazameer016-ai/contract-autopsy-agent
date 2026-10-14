@@ -33,21 +33,21 @@ GEMINI_API_KEY: str = get_secret("GEMINI_API_KEY", "")
 GROQ_API_KEY: str = get_secret("GROQ_API_KEY", "")
 
 # Configurable Models (never hardcoded in application logic)
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-# AI Mode: forced offline if no API key is available
-_env_ai_mode = os.getenv("AI_MODE", "").lower()
-if not GEMINI_API_KEY:
-    AI_MODE: str = "offline"
-elif _env_ai_mode in ("live", "offline"):
-    AI_MODE = _env_ai_mode
-else:
-    AI_MODE = "live"
+# AI Provider & Mode.
+# AI features require a configured AI provider (GEMINI_API_KEY).
+# AI_MODE "offline" is preserved for backward compatibility with existing tests.
+AI_PROVIDER: str = "gemini"
+AI_MODE: str = "live" if bool(GEMINI_API_KEY) else "offline"
+
 
 # Thresholds (configurable assumptions from Architecture doc)
 FAVOURABILITY_GAP_THRESHOLD: int = int(os.getenv("FAVOURABILITY_GAP_THRESHOLD", "25"))
 BM25_SIMILARITY_THRESHOLD: float = float(os.getenv("BM25_SIMILARITY_THRESHOLD", "0.35"))
+COVERAGE_THRESHOLD: float = float(os.getenv("COVERAGE_THRESHOLD", "0.5"))
+MARGIN_THRESHOLD: float = float(os.getenv("MARGIN_THRESHOLD", "8.0"))
 LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
 # Privacy & Disclaimer defaults
@@ -59,9 +59,31 @@ DISCLAIMER_TEXT: str = (
 )
 
 
+def is_ai_available() -> bool:
+    """Return True if an AI provider is configured with a valid API key."""
+    return bool(GEMINI_API_KEY.strip()) if GEMINI_API_KEY else False
+
+
 def is_offline() -> bool:
-    """Return True if system is running in offline mode."""
-    return AI_MODE == "offline" or not bool(GEMINI_API_KEY)
+    """Returns True when no AI provider API key is configured.
+
+    Preserved for backward compatibility with Stage 3/5 tests.
+    Use is_ai_available() in new code.
+    """
+    return not is_ai_available()
+
+
+def get_ai_status() -> str:
+    """Return an honest, user-readable provider status string.
+
+    Never exposes key values.
+    Examples:
+      "Gemini configured (gemini-2.5-flash)"
+      "AI unavailable — GEMINI_API_KEY not set"
+    """
+    if is_ai_available():
+        return f"Gemini configured ({GEMINI_MODEL})"
+    return "AI unavailable — GEMINI_API_KEY not set"
 
 
 def mask_key(key: str) -> str:

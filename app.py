@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Any
+from src.ca.llm.client import clear_session_cache
 
 import streamlit as st
 
@@ -24,9 +25,13 @@ from config.settings import (
     GEMINI_API_KEY,
     FAVOURABILITY_GAP_THRESHOLD,
     BM25_SIMILARITY_THRESHOLD,
+    COVERAGE_THRESHOLD,
+    MARGIN_THRESHOLD,
     DISCLAIMER_TEXT,
     APP_VERSION,
     mask_key,
+    is_offline,
+    get_ai_status,
 )
 from src.ca.extraction.loader import load_document, load_pasted_text
 from src.ca.extraction.ocr_reader import get_ocr_status_message
@@ -40,10 +45,29 @@ from src.ca.ui.components import (
     RATING_COLORS,
     RATING_ICONS,
 )
-from src.ca.schemas import ExtractedDocument, Clause, ContractAnalysis
+from src.ca.schemas import (
+    ExtractedDocument,
+    Clause,
+    ContractAnalysis,
+    ComparisonRow,
+    BorrowSuggestion,
+    ComparisonVerdict,
+    MANDATORY_BORROW_CAVEAT,
+)
 from src.ca.generation.summary import summarize_contract
 from src.ca.generation.counter_clause import generate_counter_clause
 from src.ca.translation.translate import translate_category, translate_status
+from src.ca.compare import (
+    match_contracts,
+    ALL_PRIORITY_CATEGORIES,
+    calculate_category_favourability,
+    calculate_weighted_scores,
+    find_dealbreakers,
+    build_deterministic_verdict,
+    rewrite_verdict_with_ai,
+    generate_borrow_suggestions,
+)
+from src.ca.kb.retriever import get_kb_status
 
 
 # ---------------------------------------------------------------------
@@ -54,7 +78,7 @@ st.set_page_config(
     page_title="Contract Autopsy Agent",
     page_icon="⚖️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Custom styling for high readability and professional presentation
@@ -280,19 +304,23 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button("🔄 Reset / Clear Session", use_container_width=True):
-        st.session_state.clear()
-        st.rerun()
+   
+if st.button("🔄 Reset / Clear Session", use_container_width=True):
+    clear_session_cache()
+    st.session_state.clear()
+    st.rerun()
+
 
     st.markdown("---")
     with st.expander("⚙️ Technical Details & Diagnostics", expanded=False):
         st.caption(f"App Version: `{APP_VERSION}`")
         st.markdown(f"**Python Runtime:** `{sys.version.split()[0]}`")
 
-        if AI_MODE == "offline":
-            st.warning("AI Gateway: **Honest Offline Mode** (Deterministic fallback)")
+        ai_status_str = get_ai_status()
+        if is_offline():
+            st.warning(f"AI Provider: **{ai_status_str}**")
         else:
-            st.success("AI Gateway: **Live AI Mode**")
+            st.success(f"AI Provider: **{ai_status_str}**")
 
         st.markdown(f"**Gemini Model:** `{GEMINI_MODEL}`")
         st.markdown(f"**Gemini API Key:** `{mask_key(GEMINI_API_KEY)}`")
@@ -302,8 +330,19 @@ with st.sidebar:
         st.markdown("**OCR Dependency Status:**")
         st.caption(get_ocr_status_message())
 
+        st.markdown("**Legal Knowledge Base (Stage 6):**")
+        try:
+            _kb_status = get_kb_status()
+            st.caption(
+                f"Reference records loaded: {_kb_status['total']} | "
+                f"Verified for retrieval: {_kb_status['verified']}. "
+                "Case law and regulatory guidance are not yet integrated."
+            )
+        except Exception:
+            st.caption("Knowledge base status unavailable.")
+
     st.markdown("---")
-    st.caption("🔒 **Privacy Guarantee:** Text is never saved to external databases. Offline deterministic processing is always available.")
+    st.caption("🔒 **Privacy Notice:** Contract text is processed in memory only for this session. AI features require explicit consent before sending data to an external provider.")
 
 
 # ---------------------------------------------------------------------
@@ -657,7 +696,7 @@ with tab_understand:
 
                 # Honest Fallback Badge
                 if summary_result.generated_by == "template":
-                    st.info("🛡️ **Mode: Local Offline Template** (Generated deterministically without external AI calls)")
+                    st.info("🛡️ **Mode: Local Deterministic Template** (Generated from contract structure without sending data to an external AI provider)")
                 else:
                     st.success("🤖 **Mode: AI-Generated & Schema-Validated** (Validated against source contract text)")
 
@@ -849,9 +888,16 @@ with tab_negotiate:
                     st.caption(f"Triggered Rubric Rules: {' | '.join(rule_tags)}")
 
                 st.markdown("#### 3. Suggested Replacement Clause")
+                borrow_ref = st.session_state.get("borrow_ref_quote")
+                if borrow_ref:
+                    st.info(f"📎 **Attached Reference Clause from Comparison Offer:**\n> \"{borrow_ref[:140]}...\"")
+                    if st.button("❌ Remove Attached Reference", key="btn_clear_borrow_ref"):
+                        del st.session_state["borrow_ref_quote"]
+                        st.rerun()
+
                 if st.button("✍️ Generate Counter-Clause Draft", key=f"btn_counter_{active_neg_analysis.doc_id}_{selected_finding.finding_id}"):
                     try:
-                        draft = generate_counter_clause(selected_finding)
+                        draft = generate_counter_clause(selected_finding, reference_quote=borrow_ref)
                         st.session_state["active_counter_draft"] = draft
                         st.session_state["active_counter_fid"] = selected_finding.finding_id
                     except Exception as exc:
@@ -921,94 +967,257 @@ with tab_compare:
         doc_a = st.session_state.get("doc_A")
         doc_b = st.session_state.get("doc_B")
 
-        # Side by side overview
-        st.markdown("#### 1. Overall Risk Score Comparison")
-        col_comp_a, col_comp_b = st.columns(2)
-
-        with col_comp_a:
-            st.markdown(f"**Contract A:** `{doc_a.filename if doc_a else 'Contract A'}`")
-            score_a = analysis_a.overall_risk_score
-            delta_label_a = "🟢 Lower Risk" if score_a < analysis_b.overall_risk_score else "🔴 Higher Risk"
-            st.metric("Risk Score", f"{score_a} / 100", delta=delta_label_a if score_a != analysis_b.overall_risk_score else "Equal")
-
-        with col_comp_b:
-            st.markdown(f"**Contract B:** `{doc_b.filename if doc_b else 'Contract B'}`")
-            score_b = analysis_b.overall_risk_score
-            delta_label_b = "🟢 Lower Risk" if score_b < score_a else "🔴 Higher Risk"
-            st.metric("Risk Score", f"{score_b} / 100", delta=delta_label_b if score_b != score_a else "Equal")
-
-        # Comparison summary takeaway
-        if score_a < score_b:
-            gap = score_b - score_a
-            st.success(f"🏆 **Takeaway:** Contract A has **{gap} points lower risk** than Contract B.")
-        elif score_b < score_a:
-            gap = score_a - score_b
-            st.success(f"🏆 **Takeaway:** Contract B has **{gap} points lower risk** than Contract A.")
-        else:
-            st.info("⚖️ Both contracts have identical overall risk scores.")
+        # Top Contract Identification Banner
+        col_id_a, col_id_b = st.columns(2)
+        with col_id_a:
+            st.markdown(f"**Contract A:** `{doc_a.filename if doc_a else 'Contract A'}` ({len(analysis_a.clauses)} clauses, Risk {analysis_a.overall_risk_score}/100)")
+        with col_id_b:
+            st.markdown(f"**Contract B:** `{doc_b.filename if doc_b else 'Contract B'}` ({len(analysis_b.clauses)} clauses, Risk {analysis_b.overall_risk_score}/100)")
 
         st.markdown("---")
-        st.markdown("#### 2. Category Ratings Comparison")
+        # 1. User Priority Controls (Architecture G.2)
+        st.markdown("#### 1. Set Your Priorities (Importance Weights)")
+        st.caption("Adjust the importance of each contract aspect. 0 = Ignore, 1 = Low, 2 = Medium (Default), 3 = High.")
 
-        categories = ["payment", "ip", "termination", "scope", "liability", "confidentiality"]
-        table_rows = []
+        # Ensure session state weights exist
+        if "compare_weights" not in st.session_state:
+            st.session_state["compare_weights"] = {
+                "payment": 2,
+                "ip": 2,
+                "termination": 2,
+                "scope": 2,
+                "liability": 2,
+                "confidentiality": 2,
+            }
 
-        for cat in categories:
-            cat_name = get_category_display_name(cat)
-            rating_a = analysis_a.category_ratings.get(cat, "UNRATED")
-            score_cat_a = analysis_a.category_scores.get(cat, 0)
-            badge_a = RATING_ICONS.get(rating_a, rating_a)
+        priority_labels = {
+            "payment": "💰 Payment Security",
+            "ip": "🛡️ IP Ownership",
+            "termination": "🚪 Termination",
+            "scope": "📋 Scope Clarity",
+            "liability": "⚖️ Liability Protection",
+            "confidentiality": "🔒 Confidentiality",
+        }
 
-            rating_b = analysis_b.category_ratings.get(cat, "UNRATED")
-            score_cat_b = analysis_b.category_scores.get(cat, 0)
-            badge_b = RATING_ICONS.get(rating_b, rating_b)
+        w_cols = st.columns(6)
+        updated_weights: dict[str, int] = {}
+        for idx, (cat_key, cat_label) in enumerate(priority_labels.items()):
+            with w_cols[idx]:
+                curr_w = st.session_state["compare_weights"].get(cat_key, 2)
+                new_w = st.selectbox(
+                    cat_label,
+                    options=[0, 1, 2, 3],
+                    index=curr_w,
+                    format_func=lambda x: {0: "0 (Ignore)", 1: "1 (Low)", 2: "2 (Medium)", 3: "3 (High)"}[x],
+                    key=f"weight_select_{cat_key}",
+                )
+                updated_weights[cat_key] = new_w
 
-            table_rows.append({
-                "Category": cat_name,
-                "Contract A Rating": f"{badge_a} ({score_cat_a} pts)",
-                "Contract B Rating": f"{badge_b} ({score_cat_b} pts)",
-            })
+        st.session_state["compare_weights"] = updated_weights
 
-        st.table(table_rows)
+        # 2. Deterministic Calculation
+        fav_a = calculate_category_favourability(analysis_a)
+        fav_b = calculate_category_favourability(analysis_b)
+        scores_data = calculate_weighted_scores(fav_a, fav_b, updated_weights)
 
-        st.markdown("---")
-        st.markdown("#### 3. Key Extracted Terms Comparison")
+        # Match slots
+        comparison_rows = match_contracts(analysis_a, analysis_b)
 
-        facts_a = _get_contract_facts_dict(analysis_a)
-        facts_b = _get_contract_facts_dict(analysis_b)
+        # Find dealbreakers (RED findings in weight 3 categories)
+        dealbreakers = find_dealbreakers(analysis_a, updated_weights, "Contract A") + find_dealbreakers(analysis_b, updated_weights, "Contract B")
 
-        key_terms = [
-            ("Payment Due Period", "payment.due_days", "days"),
-            ("Advance Payment", "payment.advance_pct", "%"),
-            ("Termination Notice Period", "termination.notice_days", "days"),
-            ("Breach Cure Period", "termination.cure_period_days", "days"),
-            ("Contract Currency", "payment.currency", ""),
-            ("Fee Amount", "payment.amount", ""),
-        ]
-
-        fact_rows = []
-        for term_label, slot_key, unit in key_terms:
-            val_a = facts_a.get(slot_key, "—")
-            val_b = facts_b.get(slot_key, "—")
-
-            str_a = f"{val_a} {unit}".strip() if val_a != "—" else "Not specified"
-            str_b = f"{val_b} {unit}".strip() if val_b != "—" else "Not specified"
-
-            fact_rows.append({
-                "Contract Term": term_label,
-                "Contract A": str_a,
-                "Contract B": str_b,
-            })
-
-        st.table(fact_rows)
-
-        # Honest Status Note regarding Feature 6 (Comparison Engine)
-        st.markdown("---")
-        st.info(
-            "ℹ️ **Feature Status Note:** Automated semantic slot matching, preference weighting, "
-            "and AI comparison verdicts (Stage 5) are in development. "
-            "Structured side-by-side comparison of deterministic findings, risk scores, and extracted facts is fully active above."
+        # Build initial deterministic verdict
+        det_verdict = build_deterministic_verdict(
+            scores_data=scores_data,
+            fav_a=fav_a,
+            fav_b=fav_b,
+            rows=comparison_rows,
+            dealbreakers=dealbreakers,
+            weights=updated_weights,
         )
+
+        st.markdown("---")
+        # 2. Overall Scores and Coverage Meter
+        st.markdown("#### 2. Weighted Score & Coverage Summary")
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+
+        score_a = scores_data["score_a"]
+        score_b = scores_data["score_b"]
+        margin = scores_data["margin"]
+        coverage = scores_data["coverage"]
+
+        m_col1.metric("Contract A Score", f"{score_a:.1f} / 100")
+        m_col2.metric("Contract B Score", f"{score_b:.1f} / 100")
+        m_col3.metric("Score Margin (A - B)", f"{margin:+.1f} pts")
+        m_col4.metric("Priority Coverage", f"{int(coverage * 100)}%")
+
+        st.progress(coverage, text=f"Coverage Meter: {int(coverage * 100)}% of prioritized terms have evidence in both contracts (Threshold: {int(COVERAGE_THRESHOLD * 100)}%)")
+        st.caption(f"ℹ️ Decision Rules: Insufficient evidence if coverage < {int(COVERAGE_THRESHOLD * 100)}% | No clear winner if |margin| < {MARGIN_THRESHOLD:.1f} pts.")
+
+        st.markdown("---")
+        # 3. Verdict Card and Dealbreaker Guard
+        st.markdown("#### 3. Recommendation Verdict")
+
+        # Display dealbreakers prominently if any
+        if dealbreakers:
+            st.error("🚨 **CRITICAL DEALBREAKER WARNINGS:**\n" + "\n".join(f"- {d}" for d in dealbreakers))
+
+        active_verdict = st.session_state.get("comparison_ai_verdict", det_verdict)
+
+        # If user changed weights, active_verdict updates deterministically
+        if st.session_state.get("last_verdict_weights") != updated_weights:
+            active_verdict = det_verdict
+            st.session_state["comparison_ai_verdict"] = det_verdict
+            st.session_state["last_verdict_weights"] = dict(updated_weights)
+
+        # Verdict card container
+        with st.container(border=True):
+            status_emoji = {
+                "leans_a": "🏆",
+                "leans_b": "🏆",
+                "no_clear_winner": "⚖️",
+                "insufficient_evidence": "⚠️",
+            }.get(active_verdict.status, "⚖️")
+
+            st.markdown(f"### {status_emoji} {active_verdict.headline}")
+            st.markdown(active_verdict.full_text)
+
+            badge_text = "Mode: Deterministic Rubric" if active_verdict.generated_by == "deterministic" else "Mode: AI Rewritten (Validated)"
+            st.caption(f"📌 {badge_text}")
+
+            # Optional AI Rewrite Controls
+            with st.expander("✨ Plain-Language AI Rewrite (Readability Only)", expanded=False):
+                st.caption(
+                    "The AI may rewrite the structured verdict into smoother prose for readability. "
+                    "It is strictly forbidden from changing the leaning, inventing numbers, or altering terms."
+                )
+                ai_consent = st.checkbox(
+                    "I consent to sending contract summary text to Google Gemini for rewriting.",
+                    key="comp_ai_consent",
+                )
+                col_btn_rw, col_stat_rw = st.columns([1, 2])
+                with col_btn_rw:
+                    if st.button("Generate AI Rewrite", key="btn_rewrite_verdict"):
+                        if not ai_consent:
+                            st.warning("Please check the consent box above.")
+                        elif is_offline():
+                            st.warning(
+                                "AI provider is not configured (GEMINI_API_KEY not set). "
+                                "Displaying deterministic template verdict."
+                            )
+                            st.session_state["comparison_ai_verdict"] = det_verdict
+                            st.rerun()
+                        else:
+                            with st.spinner("Rewriting verdict with Gemini..."):
+                                rewritten = rewrite_verdict_with_ai(det_verdict, has_consent=True)
+                                st.session_state["comparison_ai_verdict"] = rewritten
+                                st.success("Verdict rewritten and validated!")
+                                st.rerun()
+                with col_stat_rw:
+                    if active_verdict.generated_by == "llm_rewritten":
+                        if st.button("Reset to Deterministic Template", key="btn_reset_verdict"):
+                            st.session_state["comparison_ai_verdict"] = det_verdict
+                            st.rerun()
+
+        st.markdown("---")
+        # 4. Side-by-Side Structured Comparison Table
+        st.markdown("#### 4. Side-by-Side Structured Terms Table")
+        st.write("Examine extracted slot values, explicit gaps, comparability, and direction rules.")
+
+        cat_filter = st.selectbox(
+            "Filter comparison by category:",
+            ["All Categories"] + [get_category_display_name(c) for c in ALL_PRIORITY_CATEGORIES],
+            key="comp_table_filter",
+        )
+
+        table_data = []
+        for r in comparison_rows:
+            cat_display = get_category_display_name(r.category)
+            if cat_filter != "All Categories" and cat_display != cat_filter:
+                continue
+
+            status_badge = {
+                "matched": "🟢 Matched" if r.comparable else "⚠️ Incompatible",
+                "missing_a": "🟡 Missing in A",
+                "missing_b": "🟡 Missing in B",
+                "missing_both": "⚪ Not in either",
+                "not_comparable": "❌ Incompatible",
+                "uncertain": "❓ Uncertain match",
+            }.get(r.status, r.status)
+
+            favours_badge = {
+                "A": "👈 Favours A",
+                "B": "👉 Favours B",
+                "tie": "⚖️ Comparable",
+                "none": "—",
+            }.get(r.favours, "—")
+
+            table_data.append({
+                "Category": cat_display,
+                "Contract Term": r.label,
+                "Contract A": r.display_a,
+                "Contract B": r.display_b,
+                "Match Status": status_badge,
+                "Favourability": favours_badge,
+                "Note / Details": r.note or "—",
+            })
+
+        st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+        with st.expander("🔍 View Verbatim Source Quotes from Matched Slots", expanded=False):
+            for r in comparison_rows:
+                if r.quote_a or r.quote_b:
+                    st.markdown(f"**{r.label} ({get_category_display_name(r.category)})**")
+                    c_qa, c_qb = st.columns(2)
+                    with c_qa:
+                        p_str_a = f" (Page {r.page_a})" if r.page_a else ""
+                        st.caption(f"Contract A {r.clause_id_a or ''}{p_str_a}:")
+                        st.text_area(f"Quote A ({r.slot})", value=r.quote_a or "Not found", height=70, disabled=True, key=f"qa_{r.slot}")
+                    with c_qb:
+                        p_str_b = f" (Page {r.page_b})" if r.page_b else ""
+                        st.caption(f"Contract B {r.clause_id_b or ''}{p_str_b}:")
+                        st.text_area(f"Quote B ({r.slot})", value=r.quote_b or "Not found", height=70, disabled=True, key=f"qb_{r.slot}")
+
+        st.markdown("---")
+        # 5. Cross-Contract Borrow Terms (Feature 7)
+        st.markdown("#### 5. Terms You Could Ask For (Borrow Terms — Feature 7)")
+        st.write(
+            "Where one contract offers substantially more favourable terms (>= 25 pts) or covers a missing priority, "
+            "you can borrow that wording as a starting reference to negotiate the other contract."
+        )
+
+        borrow_suggestions = generate_borrow_suggestions(
+            analysis_a=analysis_a,
+            analysis_b=analysis_b,
+            rows=comparison_rows,
+            weights=updated_weights,
+        )
+
+        if not borrow_suggestions:
+            st.info("ℹ️ No supported borrow suggestions found based on current priority weights and contract terms.")
+        else:
+            for b_idx, sug in enumerate(borrow_suggestions):
+                with st.container(border=True):
+                    tag = "⚡ Favourability Gap" if sug.suggestion_type == "favourability_gap" else "🛡️ Missing Clause Protection"
+                    st.markdown(f"**Suggestion #{b_idx + 1}: {tag} for {get_category_display_name(sug.category)}**")
+                    st.write(f"Borrow from **{sug.source_contract}** to improve **{sug.target_contract}**.")
+                    st.markdown(f"💡 *Why this helps:* {sug.reason}")
+
+                    loc = f" (Page {sug.page})" if sug.page else ""
+                    st.caption(f"Verbatim clause from {sug.source_contract} `{sug.clause_id or ''}`{loc}:")
+                    st.text_area(
+                        "Verbatim source quotation",
+                        value=sug.verbatim_quote,
+                        height=90,
+                        disabled=True,
+                        key=f"borrow_quote_{b_idx}",
+                    )
+
+                    st.warning(f"⚠️ **Mandatory Caveat:** {sug.caveat}")
+
+                    if st.button("📋 Use as Reference in Negotiation", key=f"btn_borrow_use_{b_idx}"):
+                        st.session_state["borrow_ref_quote"] = sug.verbatim_quote
+                        st.success("Attached quotation to Negotiation workspace! Switch to the **Prepare for Negotiation** tab to generate a counter-clause with this reference term.")
 
 
 # ---------------------------------------------------------------------

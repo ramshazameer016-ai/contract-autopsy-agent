@@ -25,6 +25,7 @@ class CounterClauseDraft(BaseModel):
     negotiation_points: list[str] = Field(default_factory=list)
     generated_by: str = "template"
     applicability_note: str
+    reference_quote: str | None = None
     disclaimer: str = (
         "Draft for negotiation only. Not legal advice or a legally validated "
         "clause. Have a qualified lawyer review it before use."
@@ -145,11 +146,16 @@ def _applicability_note(finding: RiskFinding) -> str:
     )
 
 
-def generate_counter_clause(finding: RiskFinding) -> CounterClauseDraft:
+def generate_counter_clause(
+    finding: RiskFinding,
+    reference_quote: str | None = None,
+) -> CounterClauseDraft:
     """Create a conservative template without changing the original finding.
 
     This function does not call an AI provider and does not claim that the
     proposed wording resolves the identified issue.
+    If reference_quote is provided from another offer, it is attached as reference
+    context without overwriting the original source finding or clause.
     """
 
     category = finding.category
@@ -163,6 +169,16 @@ def generate_counter_clause(finding: RiskFinding) -> CounterClauseDraft:
         evidence.quote for evidence in finding.evidence if evidence.quote
     ]
 
+    points = list(_CATEGORY_NEGOTIATION_POINTS[category])
+    if reference_quote:
+        clean_ref = reference_quote.strip()
+        ref_summary = clean_ref[:100] + "..." if len(clean_ref) > 100 else clean_ref
+        points.insert(0, f"Reference term from comparison offer: \"{ref_summary}\"")
+
+    app_note = _applicability_note(finding)
+    if reference_quote:
+        app_note += " A reference term from another offer is attached for negotiation comparison only."
+
     return CounterClauseDraft(
         finding_id=finding.finding_id,
         category=category,
@@ -171,7 +187,8 @@ def generate_counter_clause(finding: RiskFinding) -> CounterClauseDraft:
         original_evidence_status=finding.evidence_status,
         original_evidence_quotes=evidence_quotes,
         proposed_clause=_CATEGORY_DRAFTS[category],
-        negotiation_points=list(_CATEGORY_NEGOTIATION_POINTS[category]),
+        negotiation_points=points,
         generated_by="template",
-        applicability_note=_applicability_note(finding),
+        applicability_note=app_note,
+        reference_quote=reference_quote,
     )

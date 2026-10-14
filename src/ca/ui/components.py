@@ -1,7 +1,8 @@
+
 """
 UI components for Contract Autopsy Agent.
 Provides explainable risk heatmap, evidence cards, rule explanations,
-and absence chips for Streamlit.
+and absence chips for Streamlit. Stage 6 adds the Legal context expander.
 """
 
 from __future__ import annotations
@@ -31,6 +32,10 @@ RATING_ICONS: dict[str, str] = {
     "GREEN": "🟢 GREEN — Favourable indicator",
     "UNRATED": "⚪ UNRATED — Needs more information",
 }
+
+# Categories for which legal context retrieval is attempted (IP and Payment
+# are the Stage 6 priority categories; others are supported if passages exist).
+_KB_CATEGORIES = {"payment", "ip"}
 
 
 def get_category_display_name(category_raw: str) -> str:
@@ -113,7 +118,7 @@ def render_findings_details(analysis: ContractAnalysis):
 
 
 def _render_single_finding(finding: RiskFinding):
-    """Render details of one finding with stable rule IDs, reason, and quotes."""
+    """Render details of one finding with stable rule IDs, reason, quotes, and legal context."""
     col_hdr1, col_hdr2 = st.columns([3, 1])
     with col_hdr1:
         if finding.clause_id:
@@ -138,9 +143,10 @@ def _render_single_finding(finding: RiskFinding):
     if finding.evidence_status == "conflicting" and finding.conflicts_with:
         st.error(f"⚡ **Cross-Clause Conflict:** Values in this clause conflict with clause(s): {', '.join(finding.conflicts_with)}")
 
-    # Verbatim Evidence Spans
+    # Contract Evidence Spans (verbatim from the uploaded contract)
     if finding.evidence:
-        with st.expander("🔍 View original contract wording", expanded=False):
+        with st.expander("🔍 Contract evidence — original contract wording", expanded=False):
+            st.caption("The following quotations are taken verbatim from the uploaded contract.")
             for ev in finding.evidence:
                 st.markdown(f"> *\"{ev.quote}\"*")
                 page_str = f"Page {ev.page}" if ev.page is not None else "Text"
@@ -148,4 +154,84 @@ def _render_single_finding(finding: RiskFinding):
     elif finding.evidence_status == "absent":
         st.caption("No contract text found for this category. Rated with absence penalty.")
 
+    # Legal context — Stage 6 KB retrieval (payment and IP only, verified passages)
+    if finding.category in _KB_CATEGORIES:
+        _render_legal_context(finding)
+
     st.divider()
+
+
+def _render_legal_context(finding: RiskFinding) -> None:
+    """Render the Stage 6 'Legal context' expander for a finding.
+
+    Shows only verified passages.  Clearly distinguishes legal context from
+    contract evidence.  Reports no-match honestly.
+    Does not send data to an external AI service.
+    """
+    try:
+        from src.ca.kb.retriever import retrieve, get_kb_status
+    except ImportError:
+        return  # KB module not available — silently skip
+
+    try:
+        result = retrieve(finding.category, verified_only=True)
+    except Exception:
+        return  # Retrieval error — silently skip rather than crash UI
+
+    cat_display = get_category_display_name(finding.category)
+
+    with st.expander(f"📚 Legal context — {cat_display}", expanded=False):
+        st.caption(
+            "ℹ️ **What is this?** Legal context passages provide background "
+            "information on relevant Indian statutes. They are provided for "
+            "reference only and do not constitute legal advice. "
+            "**This is not a conclusion about your contract's compliance or "
+            "enforceability.**"
+        )
+        st.caption(
+            "⚠️ Distinguish between: "
+            "**Contract evidence** (verbatim quotations from your uploaded contract, "
+            "shown above) and **Legal context** (statutory reference material shown here)."
+        )
+
+        if result.has_results:
+            for passage in result.passages:
+                st.markdown(f"**{passage.source_title}** — *{passage.section}*")
+                st.markdown(f"*Issuing authority:* {passage.authority}")
+                if passage.official_url:
+                    st.markdown(f"*Official source:* [{passage.official_url}]({passage.official_url})")
+                date_parts: list[str] = []
+                if passage.publication_date:
+                    date_parts.append(f"Published: {passage.publication_date}")
+                if passage.amendment_date:
+                    date_parts.append(f"Amended: {passage.amendment_date}")
+                if passage.date_accessed:
+                    date_parts.append(f"Accessed: {passage.date_accessed}")
+                if date_parts:
+                    st.caption(" | ".join(date_parts))
+                st.markdown("---")
+                st.markdown(passage.text)
+                if passage.limitations:
+                    st.caption(f"📌 *Limitation:* {passage.limitations}")
+                st.caption(
+                    "This passage provides contextual background only. "
+                    "Do not infer that your contract is compliant or enforceable "
+                    "based on this statutory reference."
+                )
+        else:
+            st.info(
+                result.no_match_reason
+                or "No verified legal context found for this finding. "
+                   "The knowledge base currently has no verified passages "
+                   "for this category."
+            )
+            try:
+                status = get_kb_status()
+                st.caption(
+                    f"Knowledge base: {status['total']} reference record(s) loaded, "
+                    f"{status['verified']} verified. "
+                    "Case law and regulatory guidance are not yet integrated."
+                )
+            except Exception:
+                pass
+

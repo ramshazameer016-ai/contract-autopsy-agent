@@ -1,7 +1,9 @@
-"""Plain-language contract summary with evidence verification and offline fallback."""
+
+"""Plain-language contract summary with evidence verification and safe fallback."""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import re
 from typing import Any, Iterator
@@ -17,6 +19,8 @@ from src.ca.translation.translate import (
     is_telugu,
     is_tamil,
 )
+
+logger = logging.getLogger(__name__)
 
 PROMPT_FILE = (
     Path(__file__).resolve().parents[1]
@@ -71,11 +75,7 @@ def _parse_fields(line: str) -> dict[str, str]:
 
 
 def _iter_records(text: str) -> Iterator[str]:
-    """
-    Yield individual FACT, FINDING and EVIDENCE records.
-    Normal input has one record per line. This also attempts to recover
-    records when debug output accidentally concatenates them onto one line.
-    """
+    """Yield individual FACT, FINDING and EVIDENCE records."""
     if not text:
         return
 
@@ -142,15 +142,11 @@ def _is_heading_only_quote(quote: str, clause: Any) -> bool:
     if quote_normalised in heading_variants:
         return True
 
-    # Catch numbered headings when heading metadata is unavailable.
-    if re.fullmatch(
+    return bool(re.fullmatch(
         r"(?:section\s+)?\d+(?:\.\d+)*\.?\s+[A-Za-z][A-Za-z &()/,\-]*",
         quote_normalised,
         flags=re.IGNORECASE,
-    ):
-        return True
-
-    return False
+    ))
 
 
 def _normalise_category(value: Any) -> str:
@@ -224,9 +220,15 @@ def _template_summary(
 
         if any(status in {"absent", "missing", "not found"} for status in statuses):
             status_label = "Missing"
-        elif any(status in {"ambiguous", "conflicting", "insufficient", "unclear"} for status in statuses):
+        elif any(
+            status in {"ambiguous", "conflicting", "insufficient", "unclear"}
+            for status in statuses
+        ):
             status_label = "Unclear"
-        elif any(status in {"present", "explicit", "clear", "stated"} for status in statuses):
+        elif any(
+            status in {"present", "explicit", "clear", "stated"}
+            for status in statuses
+        ):
             status_label = "Stated"
         else:
             status_label = "Unclear"
@@ -240,15 +242,16 @@ def _template_summary(
         reason = (
             " ".join(dict.fromkeys(reasons))
             if reasons
-            else (
-                f"The available analysis marks {category} "
-                f"as {status_label.lower()}."
-            )
+            else f"The available analysis marks {category} as {status_label.lower()}."
         )
 
         verified_candidates: list[tuple[Any, str]] = []
-        for evidence_clause_id, candidate_quote in evidence_by_category.get(_normalise_category(category), []):
-            source_clause = _find_source_clause(source_clauses, evidence_clause_id)
+        for evidence_clause_id, candidate_quote in evidence_by_category.get(
+            _normalise_category(category), []
+        ):
+            source_clause = _find_source_clause(
+                source_clauses, evidence_clause_id
+            )
             if source_clause is None:
                 continue
 
@@ -269,7 +272,9 @@ def _template_summary(
                 verified_candidates,
                 key=lambda candidate: len(candidate[1]),
             )
-            selected_clause_id = _get_value(selected_clause, "clause_id", None)
+            selected_clause_id = _get_value(
+                selected_clause, "clause_id", None
+            )
             selected_page = _get_page(selected_clause)
 
         translated_cat = (
@@ -294,7 +299,9 @@ def _template_summary(
     if not items:
         if source_clauses:
             first_clause = source_clauses[0]
-            first_text = str(_get_value(first_clause, "text", "") or "").strip()
+            first_text = str(
+                _get_value(first_clause, "text", "") or ""
+            ).strip()
 
             preview_cat = (
                 "Extracted clause" if language_name == "English"
@@ -335,13 +342,27 @@ def _template_summary(
                 )
             )
 
-    disclaimer = translate_disclaimer(language_name)
-
     return PlainSummary(
         language=language_name,
         generated_by="template",
         items=items,
-        disclaimer=disclaimer,
+        prompt_version="summary_v1",
+    )
+
+
+def _fallback(
+    clauses: list[Any],
+    language: str,
+    facts_and_findings: str,
+    reason: str,
+) -> PlainSummary:
+    """Log a safe diagnostic reason and return the local template."""
+    # Log only the reason, never prompts, source text, or API credentials.
+    logger.warning("AI summary fallback: %s", reason)
+    return _template_summary(
+        clauses=clauses,
+        language=language,
+        facts_and_findings=facts_and_findings,
     )
 
 
@@ -352,73 +373,58 @@ def summarize_contract(
     consent_given: bool = False,
 ) -> PlainSummary:
     """
-    Summarize a contract using validated AI output when consent is given.
-
-    Without consent, or when AI is unavailable or its output fails
-    source-evidence checks, use the local deterministic template.
+    Use validated AI output when consent is given.
+    Fall back safely when AI is unavailable or validation fails.
     """
     language_name = SUPPORTED_LANGUAGES.get(
         str(language).strip().casefold(),
         "English",
     )
 
-    fallback = _template_summary(
-        clauses=clauses,
-        language=language_name,
-        facts_and_findings=facts_and_findings,
-    )
-
     if not consent_given:
-        return fallback
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "Consent not given; no external AI request was made.",
+        )
 
     try:
         prompt_template = PROMPT_FILE.read_text(encoding="utf-8")
 
-        lang_instruction = ""
-        if language_name == "Hindi":
-            lang_instruction = (
-                "\n\nCRITICAL LANGUAGE INSTRUCTION FOR HINDI:\n"
-                "The entire summary output MUST be written in natural, fluent Hindi using Devanagari script (देवनागरी लिपि). "
-                "Every item's 'explanation' field must be completely in Hindi (Devanagari). Do NOT output English explanations. "
-                "Keep numbers, percentages, dates, and monetary amounts (e.g. ₹) accurate. "
-                "The 'evidence_quote' field must be the EXACT original clause text from the contract (do NOT translate quotes). "
-                "In the JSON output, the 'status' field must be one of: 'Stated', 'Missing', 'Unclear', 'Inferred'."
-            )
-        elif language_name == "Telugu":
-            lang_instruction = (
-                "\n\nCRITICAL LANGUAGE INSTRUCTION FOR TELUGU:\n"
-                "The entire summary output MUST be written in natural, fluent Telugu using Telugu script (తెలుగు లిపి). "
-                "Every item's 'explanation' field must be completely in Telugu. Do NOT output English explanations. "
-                "Keep numbers, percentages, dates, and monetary amounts (e.g. ₹) accurate. "
-                "The 'evidence_quote' field must be the EXACT original clause text from the contract (do NOT translate quotes). "
-                "In the JSON output, the 'status' field must be one of: 'Stated', 'Missing', 'Unclear', 'Inferred'."
-            )
-        elif language_name == "Tamil":
-            lang_instruction = (
-                "\n\nCRITICAL LANGUAGE INSTRUCTION FOR TAMIL:\n"
-                "The entire summary output MUST be written in natural, fluent Tamil using Tamil script (தமிழ் எழுத்துக்கள்). "
-                "Every item's 'explanation' field must be completely in Tamil. Do NOT output English explanations. "
-                "Keep numbers, percentages, dates, and monetary amounts (e.g. ₹) accurate. "
-                "The 'evidence_quote' field must be the EXACT original clause text from the contract (do NOT translate quotes). "
-                "In the JSON output, the 'status' field must be one of: 'Stated', 'Missing', 'Unclear', 'Inferred'."
-            )
-        else:
-            lang_instruction = (
-                "\n\nCRITICAL LANGUAGE INSTRUCTION FOR ENGLISH:\n"
-                "Write all explanations in simple, clear English suitable for a freelancer without legal training."
-            )
+        lang_instructions = {
+            "English": (
+                "Write all explanations in simple, clear English suitable "
+                "for a freelancer without legal training."
+            ),
+            "Hindi": (
+                "Write explanations in natural Hindi using Devanagari script. "
+                "Keep evidence_quote exactly as written in the source contract."
+            ),
+            "Telugu": (
+                "Write explanations in natural Telugu using Telugu script. "
+                "Keep evidence_quote exactly as written in the source contract."
+            ),
+            "Tamil": (
+                "Write explanations in natural Tamil using Tamil script. "
+                "Keep evidence_quote exactly as written in the source contract."
+            ),
+        }
+        lang_instruction = (
+            "\n\nCRITICAL LANGUAGE INSTRUCTION:\n"
+            + lang_instructions[language_name]
+            + "\nThe status must be Stated, Missing, Unclear, or Inferred."
+        )
 
         prompt = (
             prompt_template
             + "\n\nRequested language: "
             + language_name
             + lang_instruction
-            + "\n\nUse only the supplied facts, findings, and contract "
-            "source. Do not invent terms, facts, citations, or evidence. "
-            "If information is missing or unclear, state that. Evidence "
-            "quotes must be exact substrings of their identified source "
-            "clauses. Do not use headings alone as evidence of substantive "
-            "contract terms.\n\nFACTS_AND_FINDINGS:\n"
+            + "\n\nUse only the supplied facts, findings, and contract source. "
+            "Do not invent terms, facts, citations, or evidence. If information "
+            "is missing or unclear, state that. Evidence quotes must be exact "
+            "substrings of their identified source clauses. Do not use headings "
+            "alone as evidence of substantive contract terms.\n\n"
+            "FACTS_AND_FINDINGS:\n"
             + (facts_and_findings or "(none supplied)")
             + "\n\nCONTRACT_SOURCE:\n<contract_data>\n"
             + _source_text(clauses)
@@ -431,56 +437,115 @@ def summarize_contract(
             prompt_version="summary_v1",
         )
 
-        if str(_get_value(result, "language", "")).casefold() != language_name.casefold():
-            return fallback
+    except (LLMUnavailable, OSError, ValueError, TypeError) as exc:
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            f"AI request or response validation failed ({type(exc).__name__}: {exc}).",
+        )
+    except Exception as exc:
+        # Do not log exception text; provider exceptions can contain sensitive data.
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            f"Unexpected AI error ({type(exc).__name__}).",
+        )
 
-        if _get_value(result, "generated_by", "") != "llm":
-            return fallback
+    if str(_get_value(result, "language", "")).casefold() != language_name.casefold():
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "AI response language did not match the requested language.",
+        )
 
-        # Validate that non-English languages genuinely contain target script characters in explanations
-        items = _get_value(result, "items", []) or []
-        if not items:
-            return fallback
+    if _get_value(result, "generated_by", "") != "llm":
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "AI response was not marked as LLM-generated.",
+        )
 
-        if language_name == "Hindi" and not any(is_devanagari(_get_value(item, "explanation", "")) for item in items):
-            return fallback
-        if language_name == "Telugu" and not any(is_telugu(_get_value(item, "explanation", "")) for item in items):
-            return fallback
-        if language_name == "Tamil" and not any(is_tamil(_get_value(item, "explanation", "")) for item in items):
-            return fallback
+    items = _get_value(result, "items", []) or []
+    if not items:
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "AI response contained no summary items.",
+        )
 
-        for item in items:
-            evidence_quote = str(_get_value(item, "evidence_quote", "") or "")
-            if not evidence_quote:
-                continue
-
-            item_clause_id = _get_value(item, "clause_id", None)
-            source_clause = _find_source_clause(clauses, str(item_clause_id or ""))
-            if source_clause is None:
-                return fallback
-
-            source_text = str(_get_value(source_clause, "text", "") or "")
-            if evidence_quote not in source_text:
-                return fallback
-
-            if _is_heading_only_quote(evidence_quote, source_clause):
-                return fallback
-
-            actual_page = _get_page(source_clause)
-            if isinstance(item, dict):
-                item["page"] = actual_page
-            else:
-                try:
-                    item.page = actual_page
-                except (AttributeError, TypeError):
-                    pass
-
-        return result
-
-    except (
-        LLMUnavailable,
-        OSError,
-        ValueError,
-        TypeError,
+    if language_name == "Hindi" and not any(
+        is_devanagari(_get_value(item, "explanation", "")) for item in items
     ):
-        return fallback
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "AI explanations did not contain Hindi script.",
+        )
+
+    if language_name == "Telugu" and not any(
+        is_telugu(_get_value(item, "explanation", "")) for item in items
+    ):
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "AI explanations did not contain Telugu script.",
+        )
+
+    if language_name == "Tamil" and not any(
+        is_tamil(_get_value(item, "explanation", "")) for item in items
+    ):
+        return _fallback(
+            clauses, language_name, facts_and_findings,
+            "AI explanations did not contain Tamil script.",
+        )
+
+    
+    for item in items:
+        evidence_quote = str(
+            _get_value(item, "evidence_quote", "") or ""
+        )
+        if not evidence_quote:
+            continue
+
+        item_clause_id = _get_value(item, "clause_id", None)
+        source_clause = _find_source_clause(
+            clauses, str(item_clause_id or "")
+        )
+        if source_clause is None:
+            return _fallback(
+                clauses,
+                language_name,
+                facts_and_findings,
+                "AI evidence referenced an unknown clause ID.",
+            )
+
+        source_text = str(
+            _get_value(source_clause, "text", "") or ""
+        )
+
+        if evidence_quote not in source_text:
+            logger.warning(
+                "Summary evidence mismatch: clause_id=%r, "
+                "quote_length=%d, source_length=%d",
+                item_clause_id,
+                len(evidence_quote),
+                len(source_text),
+            )
+            return _fallback(
+                clauses,
+                language_name,
+                facts_and_findings,
+                "AI evidence quote did not exactly match its source clause.",
+            )
+
+        if _is_heading_only_quote(evidence_quote, source_clause):
+            return _fallback(
+                clauses,
+                language_name,
+                facts_and_findings,
+                "AI evidence quote contained only a clause heading.",
+            )
+
+        actual_page = _get_page(source_clause)
+        if isinstance(item, dict):
+            item["page"] = actual_page
+        else:
+            try:
+                item.page = actual_page
+            except (AttributeError, TypeError):
+                pass
+
+    return result

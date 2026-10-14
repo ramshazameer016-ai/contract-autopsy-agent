@@ -1,0 +1,90 @@
+# knowledge_base/sources.yaml
+# Legal Knowledge Base — Contract Autopsy Agent, Stage 6.
+#
+# Provenance metadata for every passage in knowledge_base/passages/*.md.
+# Each entry MUST have a stable passage_id and a verification_status.
+#
+# verification_status values:
+#   "verified"     — text retrieved from the official source URL and confirmed
+#                    against the published statute or regulation.
+#   "unverified"   — text is a reference note or summary only; not confirmed
+#                    against the official source. Excluded from verified retrieval.
+#
+# IMPORTANT: Only "verified" passages appear in the "Legal context" UI panel.
+# Never mark a passage "verified" unless the text was directly retrieved from
+# the official source URL and checked character-by-character.
+#
+# Categories aligned with Stage 2 risk categories:
+#   payment, ip, termination, scope, liability, confidentiality
+
+schema_version: "1.0"
+
+passages:
+
+  - passage_id: "ICA1872-S2D"
+    topic: "contract"
+    category: "payment"
+    source_title: "The Indian Contract Act, 1872"
+    authority: "Parliament of India"
+    section: "Section 2(d) — Definition of Consideration"
+    official_url: "https://legislative.dept.gov.in/sites/default/files/A1872-09.pdf"
+    publication_date: "1872-04-25"
+    amendment_date: null
+    date_accessed: null
+    verification_status: "unverified"
+    passage_file: "ICA1872-S2D.md"
+    limitations: >
+      This is a reference entry only. The exact text of Section 2(d) has not
+      been retrieved and verified from the official PDF at the URL above.
+      Do not present this as verified legal text.
+
+  - passage_id: "ICA1872-S73"
+    topic: "damages"
+    category: "payment"
+    source_title: "The Indian Contract Act, 1872"
+    authority: "Parliament of India"
+    section: "Section 73 — Compensation for loss or damage caused by breach of contract"
+    official_url: "https://legislative.dept.gov.in/sites/default/files/A1872-09.pdf"
+    publication_date: "1872-04-25"
+    amendment_date: null
+    date_accessed: null
+    verification_status: "unverified"
+    passage_file: "ICA1872-S73.md"
+    limitations: >
+      This is a reference entry only. The exact text of Section 73 has not
+      been retrieved and verified from the official PDF at the URL above.
+      Do not present this as verified legal text.
+
+  - passage_id: "CA1957-S17"
+    topic: "ip_ownership"
+    category: "ip"
+    source_title: "The Copyright Act, 1957"
+    authority: "Parliament of India"
+    section: "Section 17 — First owner of copyright"
+    official_url: "https://copyright.gov.in/Documents/CopyrightRules1958.pdf"
+    publication_date: "1957-06-04"
+    amendment_date: "2012-06-07"
+    date_accessed: null
+    verification_status: "unverified"
+    passage_file: "CA1957-S17.md"
+    limitations: >
+      This is a reference entry only. The exact text of Section 17 of the
+      Copyright Act, 1957 (as amended in 2012) has not been retrieved and
+      verified from the official source. Do not present this as verified legal text.
+
+  - passage_id: "CA1957-S19"
+    topic: "ip_assignment"
+    category: "ip"
+    source_title: "The Copyright Act, 1957"
+    authority: "Parliament of India"
+    section: "Section 19 — Mode of assignment"
+    official_url: "https://copyright.gov.in/Documents/CopyrightRules1958.pdf"
+    publication_date: "1957-06-04"
+    amendment_date: "2012-06-07"
+    date_accessed: null
+    verification_status: "unverified"
+    passage_file: "CA1957-S19.md"
+    limitations: >
+      This is a reference entry only. The exact text of Section 19 of the
+      Copyright Act, 1957 (as amended in 2012) has not been retrieved and
+      verified from the official source. Do not present this as verified legal text.
